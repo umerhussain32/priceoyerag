@@ -184,7 +184,7 @@ Helpful Answer:"""
 
     history_str = ""
     if chat_history:
-        formatted_turns = [f"{'Customer' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in chat_history[-6:]]
+        formatted_turns = [f"{'Customer' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in chat_history[-4:]]
         history_str = "\n".join(formatted_turns)
 
     context = "\n\n---\n\n".join(
