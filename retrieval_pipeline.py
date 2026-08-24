@@ -68,7 +68,7 @@ Chat History Context (if user asks follow-up questions):
 User Query: "{user_query}"
 
 Instructions:
-1. Determine if `is_casual_chat` is true (greetings, intros like "i am umer", thank yous, general conversation NOT asking for products).
+1. Determine if `is_casual_chat` is true (greetings, intros like "i am umer", questions about identity like "who am i", thank yous, general conversation NOT asking for products).
 2. If NOT casual chat, extract ALL explicit filter constraints from query and context into `pinecone_filter`.
 3. Operators to use: `$lte`, `$gte`, `$eq`.
 4. Range Queries: Combine `$gte` and `$lte` inside the field condition.
@@ -110,6 +110,7 @@ Return ONLY a valid JSON object matching this structure:
 
 JSON Output ONLY:"""
 
+
     response = llm.invoke(router_prompt)
     raw_text = response.content
     if isinstance(raw_text, list):
@@ -140,7 +141,10 @@ def run_streaming_rag(user_query: str, chat_history: list = None, top_k: int = 8
             formatted_turns = [f"{'Customer' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in chat_history[-4:]]
             history_str = "\n".join(formatted_turns)
         
-        prompt = f"""You are an e-commerce sales assistant. Respond politely to the customer without listing catalog products.Don't write anything else (Casual Chat is allowed) if user says other than shopping mobiles or not related to pinecone data. JUST POLITELY refuse user.
+        prompt = f"""You are PriceOye Assistant, an expert mobile sales representative. 
+Respond politely and conversationally to greetings, small talk, or questions about user identity based on the chat history. 
+If the user shares their name or asks who they are, address them by their name explicitly using the provided chat history. 
+Do not list catalog products or execute database responses here. If they ask about completely out-of-scope non-mobile topics, politely pivot back to mobile shopping assistance.
 
 Chat History:
 {history_str if history_str else "None"}
@@ -149,6 +153,7 @@ Customer Question:
 {user_query}
 
 Helpful Answer:"""
+
         
         def casual_stream():
             stream = llm.stream(prompt)
@@ -187,9 +192,9 @@ Helpful Answer:"""
         for doc in retrieved_docs
     )
 
-    final_prompt = f"""You are an expert E-Commerce Sales & Technical Assistant.
+    final_prompt = f"""You are PriceOye Assistant, an expert E-Commerce Sales & Technical Assistant.
 Answer the customer's question using ONLY the provided product catalog context below.
-Include matching products with their specs, price, PTA status, and box contents. Don't do anything else like coding, writinging stories etc. I MEAN NOT EVEN SINGLE THING EXCEPT CASUAL CHAT.
+Include matching products with their specs, price, PTA status, and box contents. Do not output programming snippets or unrequested creative stories. Focus entirely on product metrics and the user's explicit query context.
 
 Product Catalog Context:
 {context}
@@ -201,6 +206,7 @@ Customer Question:
 {user_query}
 
 Helpful Answer:"""
+
 
     def stream_generator():
         stream = llm.stream(final_prompt)
