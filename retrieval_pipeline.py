@@ -189,7 +189,7 @@ Helpful Answer:"""
 
     final_prompt = f"""You are an expert E-Commerce Sales & Technical Assistant.
 Answer the customer's question using ONLY the provided product catalog context below.
-Include matching products with their specs, price, PTA status, and box contents.
+Include matching products with their specs, price, PTA status, and box contents. Don't do anything else like coding, writinging stories etc. I MEAN NOT EVEN SINGLE THING EXCEPT CASUAL CHAT.
 
 Product Catalog Context:
 {context}
