@@ -140,7 +140,7 @@ def run_streaming_rag(user_query: str, chat_history: list = None, top_k: int = 4
             formatted_turns = [f"{'Customer' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in chat_history[-4:]]
             history_str = "\n".join(formatted_turns)
         
-        prompt = f"""You are an e-commerce sales assistant. Respond politely to the customer without listing catalog products.Don't write anything else if user says other than shopping mobiles or not related to pinecone data. JUST POLITELY SAYS "I am just Priceoye Assistant.".
+        prompt = f"""You are an e-commerce sales assistant. Respond politely to the customer without listing catalog products.Don't write anything else if user says other than shopping mobiles or not related to pinecone data. JUST POLITELY SAYS something like this but enhanced "I am just Priceoye Assistant". Casual Chat is allowed.
 
 Chat History:
 {history_str if history_str else "None"}
