@@ -131,7 +131,7 @@ JSON Output ONLY:"""
 # ----------------------------
 # 3. Main RAG Pipeline
 # ----------------------------
-def run_streaming_rag(user_query: str, chat_history: list = None, top_k: int = 8):
+def run_streaming_rag(user_query: str, chat_history: list = None, top_k: int = 5):
     analysis = analyze_and_route_query(user_query, chat_history)
     
     # Casual Chat Bypass (Prevents fetching random products on greetings)
