@@ -17,7 +17,7 @@ with st.sidebar:
     st.title("Details")
     choice = st.write(
     """This is Just prototype. Built Using OpenRouter, Groq, Pincone. It may not provide some information which is present in Database. \n
-The **Reason** is that on most models **Groq Api** only provides **8000** tokens limit per request, exceeding or requesting tokens above this limit may return **ERROR**. And also I have optimized the **prompts** to keep system within token limits. \n
+The **Reason** is that on most models **Groq Api** only provides **8000** tokens limit, exceeding or requesting tokens above this limit may return **ERROR**. And also I have optimized the **prompts** to keep system within token limits. \n
 Moreover, this assistant only contains the data of **32 Phones**, prompting it about anything else like **Smart Watches** would return **nothing**."""
 ),st.divider(), st.sidebar.caption("""Developed by **Umer Hussain** \n
 Powered by **Groq, OpenRouter, Pinecone, Firecrawl**. \n
