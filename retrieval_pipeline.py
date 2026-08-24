@@ -23,7 +23,7 @@ vectorstore = PineconeVectorStore(
 )
 
 llm = ChatOpenAI(
-    model="openai/gpt-oss-safeguard-20b",
+    model="qwen/qwen3.6-27b",
     openai_api_key=os.getenv("GROQ_API_KEY"),
     openai_api_base="https://api.groq.com/openai/v1",
     temperature=0.1
