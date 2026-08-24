@@ -4,14 +4,14 @@ import re
 import unicodedata
 from retrieval_pipeline import run_streaming_rag
 
-st.set_page_config(page_title="Priceoye Assistant", page_icon="https://i.postimg.cc/HnFB7SpF/priceoye-logo-modified.png",layout="wide")
+st.set_page_config(page_title="Priceoye Assistant", page_icon="/assets/priceoye logo-modified.png",layout="wide")
 
 st.title("PriceOye Assistant", text_alignment="center")
 left_space, image_zone, right_space = st.columns([1, 1, 1])
 
 with image_zone:
      
-       st.image("https://i.postimg.cc/HnFB7SpF/priceoye-logo-modified.png")
+       st.image("/assets/priceoye logo-modified.png")
     
 
 with st.sidebar:
@@ -168,7 +168,7 @@ if user_query:
     st.chat_message("user",).write(user_query)
     st.session_state.messages.append({"role": "user", "content": user_query})
 
-    with st.chat_message("assistant",avatar="https://i.postimg.cc/HnFB7SpF/priceoye-logo-modified.png"):
+    with st.chat_message("assistant",avatar="/assets/priceoye logo-modified.png"):
         history_for_rag = st.session_state.messages[:-1]
         result = run_streaming_rag(user_query, chat_history=history_for_rag)
 
