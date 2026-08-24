@@ -26,7 +26,7 @@ llm = ChatOpenAI(
     model="openai/gpt-oss-safeguard-20b",
     openai_api_key=os.getenv("GROQ_API_KEY"),
     openai_api_base="https://api.groq.com/openai/v1",
-    temperature=0.05
+    temperature=0.1
 )
 
 # ----------------------------
@@ -140,7 +140,7 @@ def run_streaming_rag(user_query: str, chat_history: list = None, top_k: int = 4
             formatted_turns = [f"{'Customer' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in chat_history[-4:]]
             history_str = "\n".join(formatted_turns)
         
-        prompt = f"""You are an e-commerce sales assistant. Respond politely to the customer without listing catalog products.Don't write anything else if user says other than shopping mobiles or not related to pinecone data. JUST POLITELY SAYS something like this but enhanced "I am just Priceoye Assistant". Casual Chat is allowed.
+        prompt = f"""You are an e-commerce sales assistant. Respond politely to the customer without listing catalog products.Don't write anything else if user says other than shopping mobiles or not related to pinecone data. JUST POLITELY refuse user. Casual Chat is allowed.
 
 Chat History:
 {history_str if history_str else "None"}
