@@ -1,0 +1,8 @@
+streamlit
+pandas
+python-dotenv
+langchain-core
+langchain-pinecone
+langchain-nvidia-ai-endpoints
+langchain-google-genai
+langchain-openai
