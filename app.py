@@ -1,4 +1,3 @@
-
 import streamlit as st
 import re
 import unicodedata
@@ -148,29 +147,36 @@ def render_product_cards(retrieved_docs, ai_text_response=""):
                     st.link_button("Buy Now 🛒", meta["url"], use_container_width=True)
 
 # ----------------------------------------------------
-# UI & STREAMLIT SESSION STATE MEMORY
+# UI & STREAMLIT SESSION STATE MEMORY (UPDATED)
 # ----------------------------------------------------
 
+# Initialize conversation history tracker
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Render past chat history
+# Map avatars cleanly to matching roles
+avatars = {"user": None, "assistant": "assets/priceoye logo-modified.png"}
+
+# Render past chat logs correctly without duplicate processing bugs
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    with st.chat_message(msg["role"], avatar=avatars.get(msg["role"])):
         st.markdown(msg["content"])
         if msg.get("retrieved_docs"):
             render_product_cards(msg["retrieved_docs"], msg["content"])
 
-# User chat input
+# User chat input element
 user_query = st.chat_input("Ask about Phones listed on priceoye.pk...")
 
 if user_query:
-    st.chat_message("user",).write(user_query)
+    # 1. Render and immediately record user message 
+    with st.chat_message("user"):
+        st.markdown(user_query)
     st.session_state.messages.append({"role": "user", "content": user_query})
 
-    with st.chat_message("assistant",avatar="assets/priceoye logo-modified.png"):
-        history_for_rag = st.session_state.messages[:-1]
-        result = run_streaming_rag(user_query, chat_history=history_for_rag)
+    # 2. Render Assistant response container with custom icon
+    with st.chat_message("assistant", avatar="assets/priceoye logo-modified.png"):
+        # Send full historical dialogue context down to your RAG pipeline
+        result = run_streaming_rag(user_query, chat_history=st.session_state.messages[:-1])
 
         if result is None or result[0] is None:
             msg_text = "We are sorry, but we don't have enough info about that. Try searching something else."
@@ -182,15 +188,16 @@ if user_query:
             if analysis.get("has_hardcoded_specs") and analysis.get("pinecone_filter"):
                 st.info(f"🎯 Filter Applied: `{analysis['pinecone_filter']}`")
 
+            # Stream response generator directly into user screen view
             full_response = st.write_stream(stream_gen)
 
+            # Append context-filtered UI cards below text
             if retrieved_docs:
                 render_product_cards(retrieved_docs, full_response)
 
+            # Commit the full interaction to state history
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": full_response,
                 "retrieved_docs": retrieved_docs
             })
-
-
