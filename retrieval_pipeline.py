@@ -503,7 +503,7 @@ human_msg = HumanMessage(
 
 
 
-        def policy_stream():
+    def policy_stream():
             stream = llm.stream([system_msg, human_msg])
             for chunk in stream:
                 content = chunk.content
