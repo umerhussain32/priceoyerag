@@ -46,6 +46,12 @@ def normalize_text(text: str) -> str:
 def render_product_cards(retrieved_docs, ai_text_response=""):
     if not retrieved_docs:
         return
+         
+    if all(doc.metadata.get("doc_type") == "policy" for doc in retrieved_docs):
+        # Optionally show a small note (uncomment if desired)
+        # st.info("📄 Policy information is displayed above.")
+        return
+
 
     seen_products = set()
     unique_docs = []
