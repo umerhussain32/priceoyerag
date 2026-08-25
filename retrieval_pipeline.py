@@ -501,9 +501,7 @@ Helpful Answer:"""
 human_msg = HumanMessage(
     content=f"Policy Documents:\n{context}\n\nCustomer Question: {user_query}\n\nHelpful Answer:")
 
-
-
-    def policy_stream():
+ def policy_stream():
             stream = llm.stream([system_msg, human_msg])
             for chunk in stream:
                 content = chunk.content
