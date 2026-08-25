@@ -46,7 +46,7 @@ This project demonstrates a production-ready, retrieval-augmented generation (RA
 *Note: Google AI Studio and Supabase were additionally utilized during sandbox testing.*
 
 ---
-## End to End Work Flow
+
 ## 🔄 End-to-End Workflow
 
 <div align="center">
@@ -65,6 +65,7 @@ This project demonstrates a production-ready, retrieval-augmented generation (RA
 [![Step 3](https://iili.io/CDYIUdB.md.png)](https://freeimage.host/i/CDYIUdB)
 
 </div>
+
 ---
 
 ## ✨ Expected System Capabilities
