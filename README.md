@@ -46,6 +46,11 @@ This project demonstrates a production-ready, retrieval-augmented generation (RA
 *Note: Google AI Studio and Supabase were additionally utilized during sandbox testing.*
 
 ---
+## End to End Work Flow
+<img scr="assts/Project Extraction Pipeline.png" width="500" alt="Data Extraction and Cleaning Pipeline">
+
+
+---
 
 ## ✨ Expected System Capabilities
 - 📱 **Interactive Product Cards:** Displays real-time pricing, key specifications, and direct product image renders inline.
