@@ -465,7 +465,11 @@ Helpful Answer:"""
     if is_policy:
         print("🔍 POLICY BRANCH ACTIVATED")  # Debug – shows in terminal
         pinecone_filter = {"doc_type": "policy"}
+        # Get search_query and ensure it's not empty
         search_query = analysis.get("search_query", user_query)
+        if not search_query or not search_query.strip():
+            search_query = user_query  # fallback to the original query
+        
         retrieved_docs = vectorstore.similarity_search(
             search_query, k=top_k, filter=pinecone_filter
         )
@@ -512,7 +516,11 @@ Helpful Answer:"""
         return policy_stream(), retrieved_docs, analysis
 
     # --- 3. Standard Product Vector Search ---
+    # Get search_query and ensure it's not empty
     search_query = analysis.get("search_query", user_query)
+    if not search_query or not search_query.strip():
+        search_query = user_query
+    
     pinecone_filter = analysis.get("pinecone_filter")
     
     if pinecone_filter:
