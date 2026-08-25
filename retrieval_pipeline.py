@@ -463,60 +463,59 @@ Helpful Answer:"""
 
     # --- 2. Policy Query Detection ---
     if is_policy:
-    print("🔍 POLICY BRANCH ACTIVATED")
-    pinecone_filter = {"doc_type": "policy"}
-    search_query = analysis.get("search_query", user_query)
-    if not search_query or not search_query.strip():
-        search_query = user_query
+        print("🔍 POLICY BRANCH ACTIVATED")
+        pinecone_filter = {"doc_type": "policy"}
+        search_query = analysis.get("search_query", user_query)
+        if not search_query or not search_query.strip():
+            search_query = user_query
 
-    retrieved_docs = vectorstore.similarity_search(
-        search_query, k=top_k, filter=pinecone_filter
-    )
-
-    if not retrieved_docs:
-        return None, [], analysis
-
-    # Build context with truncation
-    context_parts = []
-    total_len = 0
-    for doc in retrieved_docs:
-        content = doc.page_content
-        if total_len + len(content) > 4000:
-            break
-        context_parts.append(
-            f"Policy Document: {doc.metadata.get('product_name', 'Policy')}\nContent: {content}"
+        retrieved_docs = vectorstore.similarity_search(
+            search_query, k=top_k, filter=pinecone_filter
         )
-        total_len += len(content)
-    context = "\n\n---\n\n".join(context_parts)
 
-    system_msg = SystemMessage(
-        content="You are a Policy Assistant for PriceOye. "
-                "Answer the customer's question based on the provided policy documents. "
-                "If the question is general (e.g., 'what is your privacy policy'), provide a clear summary of the key points from the documents. "
-                "If the documents contain no relevant information, say 'I don't have that information in our policy documents.' "
-                "Do not use external knowledge."
-    )
-    human_msg = HumanMessage(
-        content=f"Policy Documents:\n{context}\n\nCustomer Question: {user_query}\n\nHelpful Answer:"
-    )
+        if not retrieved_docs:
+            return None, [], analysis
 
-    def policy_stream():
-        stream = llm.stream([system_msg, human_msg])
-        for chunk in stream:
-            content = chunk.content
-            if isinstance(content, str):
-                yield content
-            elif isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and "text" in block:
-                        yield block["text"]
-                    elif isinstance(block, str):
-                        yield block
+        # Build context with truncation
+        context_parts = []
+        total_len = 0
+        for doc in retrieved_docs:
+            content = doc.page_content
+            if total_len + len(content) > 4000:
+                break
+            context_parts.append(
+                f"Policy Document: {doc.metadata.get('product_name', 'Policy')}\nContent: {content}"
+            )
+            total_len += len(content)
+        context = "\n\n---\n\n".join(context_parts)
 
-    return policy_stream(), retrieved_docs, analysis
+        system_msg = SystemMessage(
+            content="You are a Policy Assistant for PriceOye. "
+                    "Answer the customer's question based on the provided policy documents. "
+                    "If the question is general (e.g., 'what is your privacy policy'), provide a clear summary of the key points from the documents. "
+                    "If the documents contain no relevant information, say 'I don't have that information in our policy documents.' "
+                    "Do not use external knowledge."
+        )
+        human_msg = HumanMessage(
+            content=f"Policy Documents:\n{context}\n\nCustomer Question: {user_query}\n\nHelpful Answer:"
+        )
 
-    # --- 3. Standard Product Vector Search ---
-    # Get search_query and ensure it's not empty
+        def policy_stream():
+            stream = llm.stream([system_msg, human_msg])
+            for chunk in stream:
+                content = chunk.content
+                if isinstance(content, str):
+                    yield content
+                elif isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and "text" in block:
+                            yield block["text"]
+                        elif isinstance(block, str):
+                            yield block
+
+        return policy_stream(), retrieved_docs, analysis
+
+    # --- 3. Standard Product Vector Search (only if not casual and not policy) ---
     search_query = analysis.get("search_query", user_query)
     if not search_query or not search_query.strip():
         search_query = user_query
