@@ -134,7 +134,7 @@ JSON Output ONLY:"""
 def run_streaming_rag(user_query: str, chat_history: list = None, top_k: int = 5):
     analysis = analyze_and_route_query(user_query, chat_history)
     
-    # Casual Chat Bypass (Prevents fetching random products on greetings)
+    # Casual Chat Bypass
     if analysis.get("is_casual_chat", False):
         history_str = ""
         if chat_history:
@@ -153,7 +153,6 @@ Customer Question:
 {user_query}
 
 Helpful Answer:"""
-
         
         def casual_stream():
             stream = llm.stream(prompt)
@@ -167,10 +166,63 @@ Helpful Answer:"""
                             yield block["text"]
                         elif isinstance(block, str):
                             yield block
-                            
         return casual_stream(), [], analysis
 
-    # Standard Product Vector Search
+    # --- NEW: Policy Query Detection ---
+    policy_keywords = [
+        "policy", "policies", "installment", "payment", "finance", "emi",
+        "return", "refund", "exchange", "warranty", "guarantee",
+        "privacy", "terms", "conditions", "shipping", "delivery",
+        "cancel", "cancellation", "complaint", "dispute", "legal"
+    ]
+    user_lower = user_query.lower()
+    is_policy = any(kw in user_lower for kw in policy_keywords)
+
+    if is_policy:
+        # Force search only among policy documents
+        pinecone_filter = {"doc_type": "policy"}
+        # Use the router's search_query if available, else the raw query
+        search_query = analysis.get("search_query", user_query)
+        retrieved_docs = vectorstore.similarity_search(
+            search_query, k=top_k, filter=pinecone_filter
+        )
+
+        if not retrieved_docs:
+            return None, [], analysis
+
+        # Build context from policy docs
+        context = "\n\n---\n\n".join(
+            f"Policy Document: {doc.metadata.get('product_name', 'Policy')}\nContent: {doc.page_content}"
+            for doc in retrieved_docs
+        )
+
+        final_prompt = f"""You are PriceOye Assistant, an E-Commerce Policy Expert.
+Answer the customer's question using ONLY the provided policy documents below.
+If the information is not in the documents, say so politely and offer to connect them with customer support.
+
+Policy Documents:
+{context}
+
+Customer Question:
+{user_query}
+
+Helpful Answer:"""
+
+        def policy_stream():
+            stream = llm.stream(final_prompt)
+            for chunk in stream:
+                content = chunk.content
+                if isinstance(content, str):
+                    yield content
+                elif isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and "text" in block:
+                            yield block["text"]
+                        elif isinstance(block, str):
+                            yield block
+        return policy_stream(), retrieved_docs, analysis
+
+    # Standard Product Vector Search (unchanged)
     search_query = analysis.get("search_query", user_query)
     pinecone_filter = analysis.get("pinecone_filter")
     
@@ -206,7 +258,6 @@ Customer Question:
 {user_query}
 
 Helpful Answer:"""
-
 
     def stream_generator():
         stream = llm.stream(final_prompt)
