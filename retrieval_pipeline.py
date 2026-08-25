@@ -492,14 +492,12 @@ Helpful Answer:"""
 
         # Use system message for strict instruction
         system_msg = SystemMessage(
-            content="You are a Policy Assistant for PriceOye. "
-                    "You must answer the customer's question using ONLY the provided policy documents. "
-                    "Do not use any external knowledge or product information. "
-                    "If the answer is not in the documents, say 'I don't have that information in our policy documents.'"
-        )
-        human_msg = HumanMessage(
-            content=f"Policy Documents:\n{context}\n\nCustomer Question: {user_query}\n\nHelpful Answer:"
-        )
+    content="You are a Policy Assistant for PriceOye. "
+            "Answer the customer's question based on the provided policy documents. "
+            "If the question is general (e.g., 'what is your privacy policy'), provide a clear summary of the key points from the documents. "
+            "If the documents contain no relevant information, say 'I don't have that information in our policy documents.' "
+            "Do not use external knowledge.")
+
 
         def policy_stream():
             stream = llm.stream([system_msg, human_msg])
