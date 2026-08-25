@@ -47,9 +47,24 @@ This project demonstrates a production-ready, retrieval-augmented generation (RA
 
 ---
 ## End to End Work Flow
-<img scr="assts/Project Extraction Pipeline.png" width="500" alt="Data Extraction and Cleaning Pipeline">
+## 🔄 End-to-End Workflow
 
+<div align="center">
 
+### Step 1: Data Extraction & Data Cleaning
+[![Step 1](https://iili.io/CDYzfnf.md.png)](https://freeimage.host/i/CDYzfnf)
+
+⬇️
+
+### Step 2: Ingestion Pipeline
+[![Step 2](https://iili.io/CDYzbDu.md.png)](https://freeimage.host/i/CDYzbDu)
+
+⬇️
+
+### Step 3: Retrieval and Response Pipeline
+[![Step 3](https://iili.io/CDYIUdB.md.png)](https://freeimage.host/i/CDYIUdB)
+
+</div>
 ---
 
 ## ✨ Expected System Capabilities
