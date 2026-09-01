@@ -347,10 +347,20 @@ User Query: "{user_query}"
 Instructions:
 1. Determine if `is_casual_chat` is true (greetings, intros like "i am umer", questions about identity like "who am i", thank yous, general conversation NOT asking for products).
 2. If NOT casual chat, extract ALL explicit filter constraints from query and context into `pinecone_filter`.
-3. Operators to use: `$lte`, `$gte`, `$eq`.
+3. Operators to use: `$lte`, `$gte`, `$gt`, `$lt`, `$eq`.
 4. Range Queries: Combine `$gte` and `$lte` inside the field condition.
 5. Multiple Conditions: Enclose ALL conditions inside a single top-level `"$and"` array.
 6. Clean `search_query`: Strip specific numbers already captured in filters.
+7. Product Type RAM Rules:
+   - If the user asks for "smartphones", "smart phones", "smartphone", "Android phones", "iPhones", or clearly means a modern smartphone, automatically add:
+     {"ram_gb": {"$gt": 1}}
+     This means RAM must be greater than 1 GB.
+   - If the user asks for "keypad phones", "keypad mobile", "button phones", "feature phones", or clearly means a traditional keypad/button phone, automatically add:
+     {"ram_gb": {"$lt": 1}}
+     This means RAM must be less than 1 GB.
+   - These RAM rules are implicit product-type constraints even when the user does not explicitly mention RAM.
+   - Never apply both smartphone and keypad-phone RAM rules to the same query.
+   - If the user explicitly specifies a RAM requirement, the user's explicit RAM requirement takes priority over the implicit product-type rule.
 
 Few-Shot Examples:
 - Example 1:
@@ -376,6 +386,31 @@ Few-Shot Examples:
     "pinecone_filter": null,
     "search_query": ""
   }}
+  - Example 3:
+  Query: "show me smartphones"
+  JSON: {
+    "is_casual_chat": false,
+    "has_hardcoded_specs": true,
+    "pinecone_filter": {
+      "$and": [
+        {"ram_gb": {"$gt": 1}}
+      ]
+    },
+    "search_query": "smartphone"
+  }
+
+- Example 4:
+  Query: "show me keypad phones"
+  JSON: {
+    "is_casual_chat": false,
+    "has_hardcoded_specs": true,
+    "pinecone_filter": {
+      "$and": [
+        {"ram_gb": {"$lt": 1}}
+      ]
+    },
+    "search_query": "keypad phone"
+  }
 
 Return ONLY a valid JSON object matching this structure:
 {{
