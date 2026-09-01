@@ -362,8 +362,25 @@ Instructions:
 
 5. Multiple Conditions: Enclose ALL conditions inside a single top-level `"$and"` array.
 
-6. Clean `search_query`: Strip specific numbers already captured in filters.
+6. 6. Clean `search_query`:
+   - Strip specific numbers and specifications that are already captured in filters.
+   - ALWAYS preserve specific brand names, manufacturer names, model names, and product names in `search_query`.
+   - If a specific brand or model is mentioned, it MUST remain in `search_query`.
+   - Do NOT remove brand/model names just because they are accompanied by "smartphone", "smart phone", "keypad phone", "button phone", or "feature phone".
+   - Include the product type together with the brand/model when useful.
 
+   Examples:
+   "Samsung smartphones"
+   → search_query: "Samsung smartphone"
+
+   "Nokia keypad phones"
+   → search_query: "Nokia keypad phone"
+
+   "Samsung Galaxy phones under 50k"
+   → search_query: "Samsung Galaxy smartphone"
+
+   "Nokia 105 keypad phone"
+   → search_query: "Nokia 105 keypad phone"
 7. Product Type RAM Rules:
    - If the user asks for "smartphones", "smart phones", "smartphone", "Android phones", "iPhones", or clearly means a modern smartphone, automatically add:
      {{"ram_gb": {{"$gt": 1}}}}
@@ -393,9 +410,11 @@ Instructions:
      should become:
      {{"price_numeric": {{"$gt": 10000, "$lte": 50000}}}}
 
-   - If the user explicitly asks for smartphones below 10,000 PKR, the explicit user price requirement takes priority over the default smartphone price > 10,000 rule.
+   - If the user explicitly asks for smartphones below 10,000 PKR, the explicit user price requirement takes priority over the default smartphone price > 10,000 rule. 
+   - If a specific brand or model is attached to the smartphone request, preserve that brand/model in `search_query`.
 
    - Keypad phones do NOT automatically receive the price > 10,000 rule. Only the RAM < 1 GB rule applies automatically to keypad phones.
+   - If a specific brand or model is attached to the keypad-phone request, preserve that brand/model in `search_query`.
 
 9. Explicit specifications always take priority over implicit product-type defaults for the SAME field.
 
