@@ -1,33 +1,34 @@
+````python
 """
-============================================================
-PriceOye RAG - Full Evaluation
-============================================================
+PriceOye RAG - 10 Question Evaluation
+=====================================
 
 IMPORTANT:
 - Does NOT modify retrieval_pipeline.py
 - Does NOT modify app.py
-- Uses the existing run_streaming_rag()
-- Runs independently from Streamlit
-- Produces retrieval + generation + e-commerce metrics
-- Saves detailed per-question results
-- Saves aggregate metrics
-- Saves Markdown report
-- Handles API failures separately from RAG failures
+- Uses the EXISTING run_streaming_rag()
+- Only 10 evaluation questions
+- Does not invent retrieval results
+- Does not calculate invalid metrics
+- Separates API errors from RAG quality
+- Produces CSV + JSON + Markdown report
 
-RUN:
+Run:
 
     python rag_evaluation.py
 
-OUTPUT:
+Optional LLM judge:
+
+    ENABLE_LLM_JUDGE=true python rag_evaluation.py
+
+Files created:
 
     rag_evaluation_results/
         evaluation_results.csv
-        category_results.csv
         metrics.json
-        REPORT.md
+        category_results.csv
         failed_queries.csv
-
-============================================================
+        REPORT.md
 """
 
 from __future__ import annotations
@@ -37,10 +38,9 @@ import sys
 import json
 import time
 import math
-import traceback
 import re
+import traceback
 from pathlib import Path
-from collections import defaultdict
 
 import pandas as pd
 
@@ -50,51 +50,53 @@ import pandas as pd
 # ============================================================
 
 ROOT = Path(__file__).resolve().parent
-
 sys.path.insert(0, str(ROOT))
 
 
 # ============================================================
-# IMPORT YOUR EXISTING RAG
+# IMPORT YOUR EXISTING PIPELINE
 # ============================================================
 
 try:
     from retrieval_pipeline import run_streaming_rag
-except Exception as e:
-
-    print("\nERROR: Could not import run_streaming_rag()")
-    print(str(e))
-    print("\nMake sure this file is in the repository root.")
+except Exception as exc:
+    print("\nERROR: Could not import run_streaming_rag().")
+    print(str(exc))
+    print("\nMake sure rag_evaluation.py is in the repository root.")
     sys.exit(1)
 
 
 # ============================================================
-# OUTPUT DIRECTORY
+# OUTPUT
 # ============================================================
 
 OUTPUT_DIR = ROOT / "rag_evaluation_results"
-
-OUTPUT_DIR.mkdir(
-    parents=True,
-    exist_ok=True
-)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
-# EVALUATION DATASET
+# ONLY 10 QUESTIONS
 # ============================================================
-#
-# This is intentionally inside ONE FILE so you don't need
-# another JSON file.
 #
 # IMPORTANT:
-# Expand this list for a stronger benchmark.
+# These are deliberately mixed:
 #
-# expected_products should contain exact product/model names
-# ONLY when the question has a known expected product.
+# 1 exact model
+# 2 brand
+# 3 price
+# 4 RAM
+# 5 storage
+# 6 combined filter
+# 7 keypad
+# 8 battery
+# 9 policy
+# 10 unanswerable
 #
-# For broad queries, product names can be filled later after
-# reviewing your dataset.
+# For retrieval ground-truth metrics, expected_products
+# should ideally be verified against your actual dataset.
+#
+# Empty expected_products means retrieval precision/recall
+# is NOT calculated for that question.
 #
 # ============================================================
 
@@ -112,7 +114,7 @@ TEST_CASES = [
         "id": "Q002",
         "category": "brand",
         "question": "Show me Samsung smartphones.",
-        "expected_products": ["Samsung"],
+        "expected_products": [],
         "answerable": True,
     },
 
@@ -126,14 +128,6 @@ TEST_CASES = [
 
     {
         "id": "Q004",
-        "category": "price_filter",
-        "question": "Show me phones between 30000 and 50000.",
-        "expected_products": [],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q005",
         "category": "ram",
         "question": "Show me phones with 8GB RAM.",
         "expected_products": [],
@@ -141,7 +135,7 @@ TEST_CASES = [
     },
 
     {
-        "id": "Q006",
+        "id": "Q005",
         "category": "storage",
         "question": "Show me phones with 256GB storage.",
         "expected_products": [],
@@ -149,47 +143,23 @@ TEST_CASES = [
     },
 
     {
-        "id": "Q007",
+        "id": "Q006",
         "category": "multi_filter",
         "question": "Show me Samsung phones with 8GB RAM and 256GB storage under 60000.",
-        "expected_products": ["Samsung"],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q008",
-        "category": "keypad",
-        "question": "Show me Nokia keypad phones.",
-        "expected_products": ["Nokia"],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q009",
-        "category": "specific_model",
-        "question": "Tell me about Nokia 105.",
-        "expected_products": ["Nokia 105"],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q010",
-        "category": "specific_model",
-        "question": "Tell me about Samsung Galaxy A16.",
-        "expected_products": ["Samsung Galaxy A16"],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q011",
-        "category": "pta",
-        "question": "Show me PTA approved phones.",
         "expected_products": [],
         "answerable": True,
     },
 
     {
-        "id": "Q012",
+        "id": "Q007",
+        "category": "keypad",
+        "question": "Show me Nokia keypad phones.",
+        "expected_products": [],
+        "answerable": True,
+    },
+
+    {
+        "id": "Q008",
         "category": "battery",
         "question": "Show me phones with a 6000mAh battery.",
         "expected_products": [],
@@ -197,15 +167,7 @@ TEST_CASES = [
     },
 
     {
-        "id": "Q013",
-        "category": "camera",
-        "question": "Show me phones with a 50MP camera.",
-        "expected_products": [],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q014",
+        "id": "Q009",
         "category": "policy",
         "question": "What is the return policy?",
         "expected_products": [],
@@ -213,53 +175,12 @@ TEST_CASES = [
     },
 
     {
-        "id": "Q015",
-        "category": "policy",
-        "question": "What should I do if my phone arrives damaged?",
-        "expected_products": [],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q016",
-        "category": "unknown",
-        "question": "Give me a 90 percent PriceOye discount code.",
+        "id": "Q010",
+        "category": "unanswerable",
+        "question": "Give me a guaranteed 90 percent PriceOye discount code.",
         "expected_products": [],
         "answerable": False,
     },
-
-    {
-        "id": "Q017",
-        "category": "out_of_domain",
-        "question": "Who won yesterday's football match?",
-        "expected_products": [],
-        "answerable": False,
-    },
-
-    {
-        "id": "Q018",
-        "category": "brand_model",
-        "question": "Show me Samsung Galaxy phones under 50000.",
-        "expected_products": ["Samsung Galaxy"],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q019",
-        "category": "keypad",
-        "question": "Show me keypad phones under 5000.",
-        "expected_products": [],
-        "answerable": True,
-    },
-
-    {
-        "id": "Q020",
-        "category": "storage_ram",
-        "question": "Show me phones with 8GB RAM and 256GB storage.",
-        "expected_products": [],
-        "answerable": True,
-    },
-
 ]
 
 
@@ -267,31 +188,15 @@ TEST_CASES = [
 # SETTINGS
 # ============================================================
 
-K_VALUES = [1, 3, 5, 10]
-
-# LLM judge is optional.
-#
-# Set:
-#
-#     ENABLE_LLM_JUDGE=true
-#
-# in GitHub Secrets/environment variables if you want
-# Faithfulness, Relevancy and Correctness evaluation.
-#
-# Default is false to avoid consuming API quota unexpectedly.
-
 ENABLE_LLM_JUDGE = (
     os.getenv(
         "ENABLE_LLM_JUDGE",
-        "true"
+        "false"
     ).lower()
-    in {
-        "1",
-        "true",
-        "yes",
-        "y",
-    }
+    in ("1", "true", "yes", "y")
 )
+
+K_VALUES = [1, 3, 5, 10]
 
 
 # ============================================================
@@ -318,12 +223,10 @@ def initialize_judge():
     )
 
     if not api_key:
-
         print(
-            "\nWARNING: ENABLE_LLM_JUDGE=true "
-            "but OPENROUTER_API_KEY is missing."
+            "\nWARNING: ENABLE_LLM_JUDGE=true but "
+            "OPENROUTER_API_KEY is not set."
         )
-
         return False
 
     try:
@@ -337,152 +240,222 @@ def initialize_judge():
 
         return True
 
-    except Exception as e:
+    except Exception as exc:
 
         print(
-            "\nWARNING: Could not initialize "
-            f"LLM judge: {e}"
+            "\nWARNING: Could not initialize LLM judge:"
         )
+        print(str(exc))
 
         return False
 
 
 # ============================================================
-# TEXT NORMALIZATION
+# BASIC HELPERS
 # ============================================================
 
-def normalize(text):
+def normalize(value):
 
-    if text is None:
+    if value is None:
         return ""
 
-    text = str(text).lower()
-
-    text = re.sub(
+    return re.sub(
         r"\s+",
         " ",
-        text
+        str(value).lower()
+    ).strip()
+
+
+def is_document(obj):
+
+    return hasattr(
+        obj,
+        "page_content"
     )
 
-    return text.strip()
-
 
 # ============================================================
-# PRODUCT NAME EXTRACTION
+# DEEP SEARCH FOR DOCUMENTS
 # ============================================================
 
-def get_product_name(doc):
-
-    metadata = getattr(
-        doc,
-        "metadata",
-        {}
-    ) or {}
-
-    possible_fields = [
-        "product_name",
-        "product",
-        "name",
-        "model",
-        "title",
-        "product_title",
-    ]
-
-    for field in possible_fields:
-
-        value = metadata.get(field)
-
-        if value:
-
-            return str(value).strip()
-
-    return ""
-
-
-def get_context(doc):
-
-    return getattr(
-        doc,
-        "page_content",
-        ""
-    ) or ""
-
-
-# ============================================================
-# DOCUMENT EXTRACTION
-# ============================================================
-
-def extract_documents(result):
+def find_documents(obj, found=None, visited=None):
 
     """
-    Attempts to locate LangChain Documents inside the
-    existing run_streaming_rag() return value.
+    Recursively searches the returned object for LangChain
+    Document objects.
 
-    NO modification is made to the production pipeline.
+    This does NOT change your RAG.
+
+    It only inspects the return value.
     """
 
-    if result is None:
-        return []
+    if found is None:
+        found = []
 
-    # Direct list
-    if isinstance(result, list):
+    if visited is None:
+        visited = set()
 
-        docs = [
-            x
-            for x in result
-            if hasattr(x, "page_content")
-        ]
+    # Avoid recursive structures
+    try:
+        object_id = id(obj)
 
-        if docs:
-            return docs
+        if object_id in visited:
+            return found
 
-    # Tuple returned by existing RAG
-    if isinstance(result, tuple):
+        visited.add(object_id)
 
-        for value in result:
+    except Exception:
+        pass
 
-            if isinstance(value, list):
+    # Direct Document
+    if is_document(obj):
 
-                docs = [
-                    x
-                    for x in value
-                    if hasattr(
-                        x,
-                        "page_content"
-                    )
-                ]
+        if obj not in found:
+            found.append(obj)
 
-                if docs:
-                    return docs
+        return found
+
+    # List / tuple / set
+    if isinstance(
+        obj,
+        (list, tuple, set)
+    ):
+
+        for item in obj:
+
+            find_documents(
+                item,
+                found,
+                visited
+            )
+
+        return found
 
     # Dictionary
-    if isinstance(result, dict):
+    if isinstance(obj, dict):
 
-        for key in [
-            "documents",
-            "docs",
-            "retrieved_docs",
-            "context",
-            "sources",
-        ]:
+        for value in obj.values():
 
-            value = result.get(key)
+            find_documents(
+                value,
+                found,
+                visited
+            )
 
-            if isinstance(value, list):
+        return found
 
-                docs = [
-                    x
-                    for x in value
-                    if hasattr(
-                        x,
-                        "page_content"
-                    )
-                ]
+    # Objects that may contain useful attributes
+    for attr in [
+        "documents",
+        "docs",
+        "retrieved_docs",
+        "context",
+        "sources",
+    ]:
 
-                if docs:
-                    return docs
+        try:
 
-    return []
+            value = getattr(
+                obj,
+                attr,
+                None
+            )
+
+            if value is not None:
+
+                find_documents(
+                    value,
+                    found,
+                    visited
+                )
+
+        except Exception:
+            pass
+
+    return found
+
+
+# ============================================================
+# DEEP STRING EXTRACTION
+# ============================================================
+
+def find_strings(obj, found=None, visited=None):
+
+    """
+    Recursively finds strings in the returned value.
+    """
+
+    if found is None:
+        found = []
+
+    if visited is None:
+        visited = set()
+
+    try:
+
+        object_id = id(obj)
+
+        if object_id in visited:
+            return found
+
+        visited.add(object_id)
+
+    except Exception:
+        pass
+
+    if isinstance(obj, str):
+
+        text = obj.strip()
+
+        if text:
+            found.append(text)
+
+        return found
+
+    if isinstance(
+        obj,
+        (list, tuple, set)
+    ):
+
+        for item in obj:
+
+            find_strings(
+                item,
+                found,
+                visited
+            )
+
+        return found
+
+    if isinstance(obj, dict):
+
+        for key, value in obj.items():
+
+            # Prefer obvious answer fields
+            if str(key).lower() in {
+                "answer",
+                "response",
+                "message",
+                "text",
+                "output",
+                "response_text",
+                "answer_text",
+            }:
+
+                if isinstance(value, str):
+
+                    if value.strip():
+                        found.append(
+                            value.strip()
+                        )
+
+            find_strings(
+                value,
+                found,
+                visited
+            )
+
+    return found
 
 
 # ============================================================
@@ -491,70 +464,176 @@ def extract_documents(result):
 
 def extract_answer(result):
 
+    """
+    Attempts to extract the generated answer.
+
+    We prioritize obvious dictionary fields and then inspect
+    returned strings.
+
+    If nothing can safely be identified, returns "" rather
+    than pretending a result is an answer.
+    """
+
     if result is None:
         return ""
 
     if isinstance(result, str):
-        return result
+        return result.strip()
 
     if isinstance(result, dict):
 
-        for key in [
+        priority_keys = [
             "answer",
             "response",
             "message",
             "text",
             "output",
-        ]:
+            "response_text",
+            "answer_text",
+        ]
+
+        for key in priority_keys:
 
             value = result.get(key)
 
             if isinstance(value, str):
-                return value
 
-    if isinstance(result, tuple):
+                if value.strip():
 
-        # Prefer strings that look like actual answers.
-        strings = [
-            x
-            for x in result
-            if isinstance(x, str)
-        ]
+                    return value.strip()
 
-        if strings:
+    strings = find_strings(result)
 
-            # Usually the longest string is the generated
-            # response rather than a short status value.
-            return max(
-                strings,
-                key=len
-            )
+    if not strings:
+        return ""
 
+    # Remove obvious metadata/status strings
+    candidates = []
+
+    for text in strings:
+
+        lowered = normalize(text)
+
+        if lowered in {
+            "ok",
+            "success",
+            "error",
+            "true",
+            "false",
+            "none",
+            "null",
+        }:
+            continue
+
+        candidates.append(text)
+
+    if not candidates:
+        return ""
+
+    # The generated response is generally the longest
+    # natural-language string.
+    return max(
+        candidates,
+        key=len
+    )
+
+
+# ============================================================
+# METADATA
+# ============================================================
+
+def get_metadata(doc):
+
+    try:
+
+        metadata = getattr(
+            doc,
+            "metadata",
+            {}
+        )
+
+        if isinstance(
+            metadata,
+            dict
+        ):
+            return metadata
+
+    except Exception:
+        pass
+
+    return {}
+
+
+def get_product_name(doc):
+
+    metadata = get_metadata(doc)
+
+    fields = [
+        "product_name",
+        "product",
+        "name",
+        "model",
+        "title",
+        "product_title",
+    ]
+
+    for field in fields:
+
+        value = metadata.get(
+            field
+        )
+
+        if value:
+            return str(value).strip()
+
+    # Fallback: do NOT assume arbitrary page text is a
+    # product name.
     return ""
 
 
+def get_document_text(doc):
+
+    try:
+
+        return str(
+            getattr(
+                doc,
+                "page_content",
+                ""
+            )
+            or ""
+        )
+
+    except Exception:
+
+        return ""
+
+
 # ============================================================
-# RETRIEVED PRODUCT LIST
+# RETRIEVED PRODUCT NAMES
 # ============================================================
 
-def get_retrieved_products(docs):
+def retrieved_products(docs):
 
-    products = []
+    output = []
 
     for doc in docs:
 
-        name = get_product_name(doc)
+        name = get_product_name(
+            doc
+        )
 
         if name:
-            products.append(
-                normalize(name)
+
+            output.append(
+                name
             )
 
-    return products
+    return output
 
 
 # ============================================================
-# PRODUCT MATCHING
+# PRODUCT MATCH
 # ============================================================
 
 def product_matches(
@@ -562,78 +641,65 @@ def product_matches(
     expected
 ):
 
-    retrieved = normalize(
+    r = normalize(
         retrieved
     )
 
-    expected = normalize(
+    e = normalize(
         expected
     )
 
-    if not retrieved or not expected:
+    if not r or not e:
         return False
 
-    if retrieved == expected:
+    if r == e:
         return True
 
-    if expected in retrieved:
+    if e in r:
         return True
 
-    if retrieved in expected:
+    if r in e:
         return True
 
-    # Token overlap
-    expected_tokens = set(
-        expected.split()
+    r_tokens = set(
+        r.split()
     )
 
-    retrieved_tokens = set(
-        retrieved.split()
+    e_tokens = set(
+        e.split()
     )
 
-    if not expected_tokens:
+    if not e_tokens:
         return False
 
-    overlap = (
-        len(
-            expected_tokens
-            & retrieved_tokens
-        )
-        / len(expected_tokens)
-    )
+    overlap = len(
+        r_tokens & e_tokens
+    ) / len(e_tokens)
 
-    return overlap >= 0.7
+    return overlap >= 0.70
 
 
-# ============================================================
-# RELEVANCE MATCH
-# ============================================================
-
-def is_relevant(
+def relevant(
     retrieved,
     expected_products
 ):
 
-    if not expected_products:
-        return False
-
-    for expected in expected_products:
-
-        if product_matches(
-            retrieved,
-            expected
-        ):
-            return True
-
-    return False
+    return any(
+        product_matches(
+            retrieved_item,
+            expected_item
+        )
+        for expected_item
+        in expected_products
+    )
 
 
 # ============================================================
 # RETRIEVAL METRICS
 # ============================================================
 
-def hit_rate(
-    retrieved,
+def hit_rate_at_k(
+    products,
     expected,
     k
 ):
@@ -643,17 +709,17 @@ def hit_rate(
 
     return float(
         any(
-            is_relevant(
+            relevant(
                 item,
                 expected
             )
-            for item in retrieved[:k]
+            for item in products[:k]
         )
     )
 
 
 def precision_at_k(
-    retrieved,
+    products,
     expected,
     k
 ):
@@ -661,27 +727,24 @@ def precision_at_k(
     if not expected:
         return None
 
-    top = retrieved[:k]
+    top = products[:k]
 
     if not top:
         return 0.0
 
-    relevant_count = sum(
-        is_relevant(
+    hits = sum(
+        relevant(
             item,
             expected
         )
         for item in top
     )
 
-    return (
-        relevant_count
-        / len(top)
-    )
+    return hits / len(top)
 
 
 def recall_at_k(
-    retrieved,
+    products,
     expected,
     k
 ):
@@ -689,30 +752,29 @@ def recall_at_k(
     if not expected:
         return None
 
-    matched = 0
+    if not products:
+        return 0.0
+
+    hits = 0
 
     for expected_item in expected:
 
-        found = any(
+        if any(
             product_matches(
-                retrieved_item,
+                item,
                 expected_item
             )
-            for retrieved_item
-            in retrieved[:k]
-        )
+            for item in products[:k]
+        ):
+            hits += 1
 
-        if found:
-            matched += 1
-
-    return (
-        matched
-        / len(expected)
+    return hits / len(
+        expected
     )
 
 
 def reciprocal_rank(
-    retrieved,
+    products,
     expected
 ):
 
@@ -720,11 +782,11 @@ def reciprocal_rank(
         return None
 
     for rank, item in enumerate(
-        retrieved,
+        products,
         start=1
     ):
 
-        if is_relevant(
+        if relevant(
             item,
             expected
         ):
@@ -735,25 +797,25 @@ def reciprocal_rank(
 
 
 def average_precision(
-    retrieved,
+    products,
     expected
 ):
 
     if not expected:
         return None
 
-    if not retrieved:
+    if not products:
         return 0.0
 
     score = 0.0
     hits = 0
 
     for rank, item in enumerate(
-        retrieved,
+        products,
         start=1
     ):
 
-        if is_relevant(
+        if relevant(
             item,
             expected
         ):
@@ -764,20 +826,43 @@ def average_precision(
                 hits / rank
             )
 
-    return score / len(expected)
+    # Correct AP denominator is the number of relevant
+    # ground-truth items, capped by what can be retrieved.
+    denominator = min(
+        len(expected),
+        len(products)
+    )
+
+    if denominator == 0:
+        return 0.0
+
+    return min(
+        1.0,
+        score / denominator
+    )
 
 
 def ndcg_at_k(
-    retrieved,
+    products,
     expected,
     k
 ):
 
+    """
+    Proper bounded nDCG.
+
+    Always returns 0..1.
+    """
+
     if not expected:
         return None
 
-    top = retrieved[:k]
+    top = products[:k]
 
+    if not top:
+        return 0.0
+
+    # Binary relevance
     dcg = 0.0
 
     for rank, item in enumerate(
@@ -785,7 +870,7 @@ def ndcg_at_k(
         start=1
     ):
 
-        if is_relevant(
+        if relevant(
             item,
             expected
         ):
@@ -795,12 +880,12 @@ def ndcg_at_k(
                 / math.log2(rank + 1)
             )
 
-    ideal_hits = min(
+    ideal_count = min(
         len(expected),
         k
     )
 
-    if ideal_hits == 0:
+    if ideal_count <= 0:
         return 0.0
 
     idcg = sum(
@@ -808,15 +893,21 @@ def ndcg_at_k(
         / math.log2(rank + 1)
         for rank in range(
             1,
-            ideal_hits + 1
+            ideal_count + 1
         )
     )
 
-    return dcg / idcg
+    if idcg == 0:
+        return 0.0
+
+    return min(
+        1.0,
+        dcg / idcg
+    )
 
 
 # ============================================================
-# DUPLICATE RETRIEVAL RATE
+# DUPLICATE RATE
 # ============================================================
 
 def duplicate_rate(products):
@@ -824,12 +915,21 @@ def duplicate_rate(products):
     if not products:
         return 0.0
 
-    unique = len(
-        set(products)
-    )
+    normalized = [
+        normalize(x)
+        for x in products
+        if normalize(x)
+    ]
 
-    return 1.0 - (
-        unique / len(products)
+    if not normalized:
+        return 0.0
+
+    return (
+        1.0
+        -
+        len(set(normalized))
+        /
+        len(normalized)
     )
 
 
@@ -837,34 +937,71 @@ def duplicate_rate(products):
 # SIMPLE ANSWER RELEVANCY
 # ============================================================
 
+STOPWORDS = {
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "what",
+    "which",
+    "show",
+    "me",
+    "of",
+    "for",
+    "with",
+    "and",
+    "in",
+    "on",
+    "to",
+    "my",
+    "do",
+    "i",
+    "you",
+    "tell",
+}
+
+
 def lexical_answer_relevancy(
     question,
     answer
 ):
 
-    question_tokens = set(
-        normalize(question).split()
-    )
+    if not answer:
+        return 0.0
 
-    answer_tokens = set(
-        normalize(answer).split()
-    )
+    question_tokens = {
+        token
+        for token in re.findall(
+            r"\b\w+\b",
+            normalize(question)
+        )
+        if token not in STOPWORDS
+    }
+
+    answer_tokens = {
+        token
+        for token in re.findall(
+            r"\b\w+\b",
+            normalize(answer)
+        )
+        if token not in STOPWORDS
+    }
 
     if not question_tokens:
         return 0.0
 
-    overlap = (
+    return len(
         question_tokens
-        & answer_tokens
-    )
-
-    return len(overlap) / len(
+        &
+        answer_tokens
+    ) / len(
         question_tokens
     )
 
 
 # ============================================================
-# PRODUCT MENTION ACCURACY
+# PRODUCT MENTION
 # ============================================================
 
 def product_mention_accuracy(
@@ -875,21 +1012,22 @@ def product_mention_accuracy(
     if not expected_products:
         return None
 
-    answer = normalize(answer)
-
     if not answer:
         return 0.0
 
-    matched = sum(
-        1
-        for product in expected_products
-        if normalize(product)
-        in answer
+    answer_norm = normalize(
+        answer
     )
 
-    return (
-        matched
-        / len(expected_products)
+    hits = sum(
+        normalize(product)
+        in answer_norm
+        for product
+        in expected_products
+    )
+
+    return hits / len(
+        expected_products
     )
 
 
@@ -908,12 +1046,11 @@ def run_llm_judge(
         return {}
 
     context_text = "\n\n".join(
-        contexts
+        contexts[:10]
     )
 
     prompt = f"""
-You are a strict evaluator of a
-Retrieval-Augmented Generation system.
+You are evaluating a RAG system.
 
 QUESTION:
 {question}
@@ -924,39 +1061,33 @@ RETRIEVED CONTEXT:
 GENERATED ANSWER:
 {answer}
 
-REFERENCE:
+REFERENCE ANSWER:
 {expected_answer}
 
-Evaluate:
+Evaluate the generated answer.
 
-1. Faithfulness:
-Are factual claims supported by the retrieved context?
+faithfulness:
+Are the factual claims supported by the retrieved context?
 
-2. Answer relevancy:
-Does the answer directly answer the question?
+answer_relevancy:
+Does the answer directly address the question?
 
-3. Answer correctness:
-Is the answer factually correct compared with
-the reference when a reference exists?
+answer_correctness:
+Is the answer correct according to the reference/context?
 
-4. Hallucination:
-How much unsupported factual information exists?
+hallucination_rate:
+What proportion of factual claims are unsupported?
 
-Return ONLY JSON:
+Return ONLY valid JSON:
 
 {{
   "faithfulness": 0.0,
   "answer_relevancy": 0.0,
   "answer_correctness": 0.0,
-  "hallucination_rate": 0.0,
-  "explanation": ""
+  "hallucination_rate": 0.0
 }}
 
-Scores must be between 0 and 1.
-
-For hallucination_rate:
-0 = no unsupported claims
-1 = essentially entirely unsupported
+All values must be between 0 and 1.
 """
 
     try:
@@ -970,13 +1101,13 @@ For hallucination_rate:
                     {
                         "role": "system",
                         "content":
-                            "You are a rigorous RAG evaluator."
+                            "You are a strict RAG evaluator."
                     },
                     {
                         "role": "user",
                         "content": prompt
-                    }
-                ]
+                    },
+                ],
             )
         )
 
@@ -988,73 +1119,140 @@ For hallucination_rate:
             .strip()
         )
 
-        if text.startswith("```"):
+        text = re.sub(
+            r"^```json\s*",
+            "",
+            text,
+            flags=re.I
+        )
 
-            text = re.sub(
-                r"^```(?:json)?",
-                "",
-                text
-            )
+        text = re.sub(
+            r"^```\s*",
+            "",
+            text
+        )
 
-            text = re.sub(
-                r"```$",
-                "",
-                text
-            )
+        text = re.sub(
+            r"\s*```$",
+            "",
+            text
+        )
 
-            text = text.strip()
+        data = json.loads(
+            text.strip()
+        )
 
-        return json.loads(text)
+        # Clamp judge values safely to 0..1
+        for key in [
+            "faithfulness",
+            "answer_relevancy",
+            "answer_correctness",
+            "hallucination_rate",
+        ]:
 
-    except Exception as e:
+            if key in data:
+
+                try:
+
+                    data[key] = max(
+                        0.0,
+                        min(
+                            1.0,
+                            float(
+                                data[key]
+                            )
+                        )
+                    )
+
+                except Exception:
+
+                    data[key] = None
+
+        return data
+
+    except Exception as exc:
 
         return {
-            "judge_error": str(e)
+            "judge_error": str(exc)
         }
 
 
 # ============================================================
-# EVALUATE ONE QUESTION
+# API ERROR DETECTION
+# ============================================================
+
+def classify_error(exc):
+
+    text = normalize(
+        str(exc)
+    )
+
+    if (
+        "429" in text
+        or "rate limit" in text
+        or "free-models-per-day" in text
+    ):
+        return "rate_limit"
+
+    if (
+        "401" in text
+        or "unauthorized" in text
+        or "invalid api key" in text
+    ):
+        return "authentication"
+
+    if (
+        "timeout" in text
+        or "timed out" in text
+    ):
+        return "timeout"
+
+    if "pinecone" in text:
+        return "pinecone"
+
+    return "pipeline_error"
+
+
+# ============================================================
+# ONE QUERY
 # ============================================================
 
 def evaluate_question(test):
 
-    question_id = test["id"]
     question = test["question"]
 
-    expected_products = [
+    expected = [
         normalize(x)
         for x in test.get(
             "expected_products",
             []
         )
+        if normalize(x)
     ]
 
-    expected_answer = test.get(
-        "expected_answer",
-        ""
-    )
-
     record = {
-        "id": question_id,
-        "category": test.get(
-            "category",
-            ""
-        ),
+        "id": test["id"],
+        "category": test["category"],
         "question": question,
         "answerable": test.get(
             "answerable",
             True
         ),
         "status": "ok",
+        "error_type": "",
+        "error": "",
+        "answer": "",
+        "retrieved_document_count": 0,
+        "retrieved_product_count": 0,
+        "retrieved_products": "",
     }
 
-    started = time.perf_counter()
+    start = time.perf_counter()
 
     try:
 
         # ====================================================
-        # USE EXISTING PIPELINE
+        # CALL YOUR EXISTING PRODUCTION RAG
         # ====================================================
 
         result = run_streaming_rag(
@@ -1062,46 +1260,53 @@ def evaluate_question(test):
             chat_history=[]
         )
 
-        elapsed = (
-            time.perf_counter()
-            - started
-        )
-
         record[
             "latency_seconds"
         ] = round(
-            elapsed,
+            time.perf_counter()
+            - start,
             4
         )
 
         # ====================================================
-        # EXTRACT RESULT
+        # FIND DOCUMENTS
+        # ====================================================
+
+        docs = find_documents(
+            result
+        )
+
+        # ====================================================
+        # FIND ANSWER
         # ====================================================
 
         answer = extract_answer(
             result
         )
 
-        docs = extract_documents(
-            result
-        )
-
-        products = (
-            get_retrieved_products(
-                docs
-            )
+        products = retrieved_products(
+            docs
         )
 
         contexts = [
-            get_context(doc)
+            get_document_text(doc)
             for doc in docs
+            if get_document_text(doc)
         ]
+
+        # ====================================================
+        # BASIC OUTPUT
+        # ====================================================
 
         record["answer"] = answer
 
         record[
-            "retrieved_count"
+            "retrieved_document_count"
         ] = len(docs)
+
+        record[
+            "retrieved_product_count"
+        ] = len(products)
 
         record[
             "retrieved_products"
@@ -1114,6 +1319,18 @@ def evaluate_question(test):
         ] = sum(
             len(x)
             for x in contexts
+        )
+
+        record[
+            "empty_retrieval"
+        ] = int(
+            len(docs) == 0
+        )
+
+        record[
+            "empty_answer"
+        ] = int(
+            not answer.strip()
         )
 
         record[
@@ -1130,9 +1347,9 @@ def evaluate_question(test):
 
             record[
                 f"hit_rate@{k}"
-            ] = hit_rate(
+            ] = hit_rate_at_k(
                 products,
-                expected_products,
+                expected,
                 k
             )
 
@@ -1140,7 +1357,7 @@ def evaluate_question(test):
                 f"precision@{k}"
             ] = precision_at_k(
                 products,
-                expected_products,
+                expected,
                 k
             )
 
@@ -1148,7 +1365,7 @@ def evaluate_question(test):
                 f"recall@{k}"
             ] = recall_at_k(
                 products,
-                expected_products,
+                expected,
                 k
             )
 
@@ -1156,22 +1373,18 @@ def evaluate_question(test):
                 f"ndcg@{k}"
             ] = ndcg_at_k(
                 products,
-                expected_products,
+                expected,
                 k
             )
 
-        record[
-            "mrr"
-        ] = reciprocal_rank(
+        record["mrr"] = reciprocal_rank(
             products,
-            expected_products
+            expected
         )
 
-        record[
-            "map"
-        ] = average_precision(
+        record["map"] = average_precision(
             products,
-            expected_products
+            expected
         )
 
         # ====================================================
@@ -1189,7 +1402,7 @@ def evaluate_question(test):
             "product_mention_accuracy"
         ] = product_mention_accuracy(
             answer,
-            expected_products
+            expected
         )
 
         # ====================================================
@@ -1198,6 +1411,7 @@ def evaluate_question(test):
 
         if (
             ENABLE_LLM_JUDGE
+            and JUDGE_CLIENT is not None
             and answer
             and contexts
         ):
@@ -1206,7 +1420,10 @@ def evaluate_question(test):
                 question,
                 answer,
                 contexts,
-                expected_answer
+                test.get(
+                    "expected_answer",
+                    ""
+                )
             )
 
             record.update(
@@ -1231,45 +1448,33 @@ def evaluate_question(test):
                 "hallucination_rate"
             ] = None
 
-        # ====================================================
-        # EMPTY RETRIEVAL
-        # ====================================================
+    except Exception as exc:
 
         record[
-            "empty_retrieval"
-        ] = int(
-            len(docs) == 0
-        )
+            "status"
+        ] = "error"
 
         record[
-            "empty_answer"
-        ] = int(
-            not answer.strip()
-        )
-
-    except Exception as e:
-
-        elapsed = (
-            time.perf_counter()
-            - started
-        )
-
-        record["status"] = "error"
-
-        record[
-            "latency_seconds"
-        ] = round(
-            elapsed,
-            4
+            "error_type"
+        ] = classify_error(
+            exc
         )
 
         record[
             "error"
-        ] = str(e)
+        ] = str(exc)
 
         record[
             "traceback"
         ] = traceback.format_exc()
+
+        record[
+            "latency_seconds"
+        ] = round(
+            time.perf_counter()
+            - start,
+            4
+        )
 
     return record
 
@@ -1278,7 +1483,9 @@ def evaluate_question(test):
 # SAFE MEAN
 # ============================================================
 
-def safe_mean(series):
+def safe_mean(
+    series
+):
 
     values = pd.to_numeric(
         series,
@@ -1301,32 +1508,29 @@ def main():
 
     print()
     print("=" * 72)
-    print("PRICEOYE RAG FULL EVALUATION")
+    print("PRICEOYE RAG - 10 QUESTION EVALUATION")
     print("=" * 72)
 
     print(
-        f"\nTest questions: "
-        f"{len(TEST_CASES)}"
+        f"\nQuestions: {len(TEST_CASES)}"
     )
 
     print(
-        f"LLM judge: "
-        f"{'ENABLED' if ENABLE_LLM_JUDGE else 'DISABLED'}"
+        "Production retrieval modified: NO"
+    )
+
+    print(
+        "LLM judge: "
+        + (
+            "ENABLED"
+            if ENABLE_LLM_JUDGE
+            else "DISABLED"
+        )
     )
 
     if ENABLE_LLM_JUDGE:
 
         initialize_judge()
-
-        if JUDGE_CLIENT is None:
-
-            print(
-                "\nLLM judge unavailable."
-            )
-
-            print(
-                "Continuing with deterministic metrics."
-            )
 
     print()
 
@@ -1338,8 +1542,8 @@ def main():
     ):
 
         print(
-            f"[{index:03d}/{len(TEST_CASES):03d}] "
-            f"{test['id']} "
+            f"[{index:02d}/10] "
+            f"{test['id']} - "
             f"{test['question']}"
         )
 
@@ -1352,38 +1556,63 @@ def main():
         )
 
         print(
-            f"       "
-            f"status={result['status']} "
-            f"latency="
+            f"      status: "
+            f"{result['status']}"
+        )
+
+        print(
+            f"      latency: "
             f"{result.get('latency_seconds', 0):.2f}s"
         )
+
+        if result["status"] == "error":
+
+            print(
+                f"      error: "
+                f"{result['error_type']}"
+            )
+
+        else:
+
+            print(
+                f"      documents: "
+                f"{result['retrieved_document_count']}"
+            )
+
+            print(
+                f"      answer chars: "
+                f"{len(result.get('answer', ''))}"
+            )
+
+        print()
+
+        # Small delay to avoid hammering APIs
+        if index < len(TEST_CASES):
+
+            time.sleep(1.0)
 
     df = pd.DataFrame(
         results
     )
 
     # ========================================================
-    # PER QUESTION CSV
+    # SAVE RAW RESULTS
     # ========================================================
 
-    per_query_file = (
-        OUTPUT_DIR
-        / "evaluation_results.csv"
-    )
-
     df.to_csv(
-        per_query_file,
+        OUTPUT_DIR
+        / "evaluation_results.csv",
         index=False,
         encoding="utf-8-sig"
     )
 
     # ========================================================
-    # FAILED QUERIES
+    # FAILED
     # ========================================================
 
     failed = df[
         df["status"] != "ok"
-    ]
+    ].copy()
 
     failed.to_csv(
         OUTPUT_DIR
@@ -1393,14 +1622,93 @@ def main():
     )
 
     # ========================================================
+    # IMPORTANT:
+    # Quality metrics exclude API/pipeline failures.
+    # ========================================================
+
+    successful = df[
+        df["status"] == "ok"
+    ].copy()
+
+    # ========================================================
     # OVERALL METRICS
     # ========================================================
 
     metrics = {}
 
-    metric_columns = [
+    metrics[
+        "total_questions"
+    ] = int(len(df))
 
-        # Retrieval
+    metrics[
+        "successful_questions"
+    ] = int(len(successful))
+
+    metrics[
+        "failed_questions"
+    ] = int(len(failed))
+
+    metrics[
+        "error_rate"
+    ] = (
+        len(failed)
+        /
+        len(df)
+        if len(df)
+        else 0
+    )
+
+    # --------------------------------------------------------
+    # API errors
+    # --------------------------------------------------------
+
+    if not failed.empty:
+
+        counts = (
+            failed[
+                "error_type"
+            ]
+            .value_counts()
+            .to_dict()
+        )
+
+    else:
+
+        counts = {}
+
+    metrics[
+        "rate_limit_errors"
+    ] = int(
+        counts.get(
+            "rate_limit",
+            0
+        )
+    )
+
+    metrics[
+        "authentication_errors"
+    ] = int(
+        counts.get(
+            "authentication",
+            0
+        )
+    )
+
+    metrics[
+        "timeout_errors"
+    ] = int(
+        counts.get(
+            "timeout",
+            0
+        )
+    )
+
+    # ========================================================
+    # QUALITY METRICS
+    # ========================================================
+
+    quality_columns = [
+
         "hit_rate@1",
         "hit_rate@3",
         "hit_rate@5",
@@ -1424,63 +1732,63 @@ def main():
         "mrr",
         "map",
 
-        # Generation
         "faithfulness",
         "answer_relevancy",
         "answer_correctness",
         "hallucination_rate",
 
-        # Custom
         "lexical_answer_relevancy",
         "product_mention_accuracy",
 
-        # System
         "duplicate_rate",
-        "latency_seconds",
         "empty_retrieval",
         "empty_answer",
+
+        "latency_seconds",
     ]
 
-    for column in metric_columns:
+    for column in quality_columns:
 
-        if column not in df.columns:
-            continue
+        if column in successful.columns:
 
-        metrics[column] = safe_mean(
-            df[column]
-        )
-
-    metrics[
-        "total_questions"
-    ] = len(df)
-
-    metrics[
-        "successful_questions"
-    ] = int(
-        (
-            df["status"]
-            == "ok"
-        ).sum()
-    )
-
-    metrics[
-        "failed_questions"
-    ] = int(
-        (
-            df["status"]
-            != "ok"
-        ).sum()
-    )
-
-    metrics[
-        "error_rate"
-    ] = (
-        metrics["failed_questions"]
-        / metrics["total_questions"]
-    )
+            metrics[column] = safe_mean(
+                successful[column]
+            )
 
     # ========================================================
-    # CATEGORY METRICS
+    # ANSWER GENERATION RATE
+    # ========================================================
+
+    if len(successful):
+
+        metrics[
+            "answer_generation_rate"
+        ] = 1.0 - safe_mean(
+            successful[
+                "empty_answer"
+            ]
+        )
+
+        metrics[
+            "retrieval_success_rate"
+        ] = 1.0 - safe_mean(
+            successful[
+                "empty_retrieval"
+            ]
+        )
+
+    else:
+
+        metrics[
+            "answer_generation_rate"
+        ] = None
+
+        metrics[
+            "retrieval_success_rate"
+        ] = None
+
+    # ========================================================
+    # CATEGORY RESULTS
     # ========================================================
 
     category_rows = []
@@ -1489,13 +1797,24 @@ def main():
         "category"
     ):
 
+        successful_group = group[
+            group["status"] == "ok"
+        ]
+
         row = {
             "category": category,
             "questions": len(group),
+            "successful": len(
+                successful_group
+            ),
+            "failed": (
+                len(group)
+                -
+                len(successful_group)
+            ),
         }
 
         for column in [
-
             "hit_rate@5",
             "precision@5",
             "recall@5",
@@ -1509,14 +1828,24 @@ def main():
             "lexical_answer_relevancy",
             "product_mention_accuracy",
             "duplicate_rate",
+            "empty_retrieval",
+            "empty_answer",
             "latency_seconds",
         ]:
 
-            if column in group.columns:
+            if (
+                column in
+                successful_group.columns
+                and not successful_group.empty
+            ):
 
                 row[column] = safe_mean(
-                    group[column]
+                    successful_group[column]
                 )
+
+            else:
+
+                row[column] = None
 
         category_rows.append(
             row
@@ -1534,7 +1863,7 @@ def main():
     )
 
     # ========================================================
-    # JSON METRICS
+    # JSON
     # ========================================================
 
     with open(
@@ -1542,291 +1871,375 @@ def main():
         / "metrics.json",
         "w",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
         json.dump(
             metrics,
-            f,
-            indent=2
+            file,
+            indent=2,
+            allow_nan=False
         )
 
     # ========================================================
     # MARKDOWN REPORT
     # ========================================================
 
-    report_file = (
-        OUTPUT_DIR
-        / "REPORT.md"
+    report = []
+
+    report.append(
+        "# PriceOye RAG Evaluation Report"
     )
 
-    with open(
-        report_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    report.append("")
 
-        f.write(
-            "# PriceOye RAG Evaluation Report\n\n"
+    report.append(
+        "This evaluation calls the existing "
+        "`run_streaming_rag()` function without "
+        "modifying the production retrieval pipeline."
+    )
+
+    report.append("")
+
+    report.append(
+        f"**Questions:** {len(df)}"
+    )
+
+    report.append(
+        f"**Successful:** {len(successful)}"
+    )
+
+    report.append(
+        f"**Failed:** {len(failed)}"
+    )
+
+    report.append(
+        f"**Error rate:** "
+        f"{metrics['error_rate']:.4f}"
+    )
+
+    report.append("")
+
+    # ========================================================
+    # RETRIEVAL
+    # ========================================================
+
+    report.append(
+        "## Retrieval Metrics"
+    )
+
+    report.append("")
+
+    report.append(
+        "| Metric | Score |"
+    )
+
+    report.append(
+        "|---|---:|"
+    )
+
+    for column in [
+        "hit_rate@1",
+        "hit_rate@3",
+        "hit_rate@5",
+        "hit_rate@10",
+        "precision@1",
+        "precision@3",
+        "precision@5",
+        "precision@10",
+        "recall@1",
+        "recall@3",
+        "recall@5",
+        "recall@10",
+        "ndcg@1",
+        "ndcg@3",
+        "ndcg@5",
+        "ndcg@10",
+        "mrr",
+        "map",
+    ]:
+
+        value = metrics.get(
+            column
         )
 
-        f.write(
-            "This evaluation uses the existing "
-            "`run_streaming_rag()` pipeline without "
-            "modifying the production retrieval code.\n\n"
-        )
+        if value is not None:
 
-        f.write(
-            f"**Questions:** {len(df)}\n\n"
-        )
-
-        f.write(
-            f"**Successful:** "
-            f"{metrics['successful_questions']}\n\n"
-        )
-
-        f.write(
-            f"**Failed:** "
-            f"{metrics['failed_questions']}\n\n"
-        )
-
-        f.write(
-            f"**Error rate:** "
-            f"{metrics['error_rate']:.4f}\n\n"
-        )
-
-        # ----------------------------------------------------
-        # Retrieval
-        # ----------------------------------------------------
-
-        f.write(
-            "## Retrieval Metrics\n\n"
-        )
-
-        f.write(
-            "| Metric | Score |\n"
-        )
-
-        f.write(
-            "|---|---:|\n"
-        )
-
-        for metric in [
-
-            "hit_rate@1",
-            "hit_rate@3",
-            "hit_rate@5",
-            "hit_rate@10",
-
-            "precision@1",
-            "precision@3",
-            "precision@5",
-            "precision@10",
-
-            "recall@1",
-            "recall@3",
-            "recall@5",
-            "recall@10",
-
-            "ndcg@5",
-            "ndcg@10",
-
-            "mrr",
-            "map",
-
-        ]:
-
-            value = metrics.get(
-                metric
+            report.append(
+                f"| {column} | "
+                f"{value:.4f} |"
             )
 
-            if value is not None:
+    report.append("")
 
-                f.write(
-                    f"| {metric} | "
-                    f"{value:.4f} |\n"
+    report.append(
+        "> Retrieval precision/recall metrics are only "
+        "calculated for questions that have verified "
+        "expected product names."
+    )
+
+    # ========================================================
+    # GENERATION
+    # ========================================================
+
+    report.append("")
+
+    report.append(
+        "## Generation Metrics"
+    )
+
+    report.append("")
+
+    report.append(
+        "| Metric | Score |"
+    )
+
+    report.append(
+        "|---|---:|"
+    )
+
+    for column in [
+        "faithfulness",
+        "answer_relevancy",
+        "answer_correctness",
+        "hallucination_rate",
+    ]:
+
+        value = metrics.get(
+            column
+        )
+
+        if value is not None:
+
+            report.append(
+                f"| {column} | "
+                f"{value:.4f} |"
+            )
+
+    if not ENABLE_LLM_JUDGE:
+
+        report.append("")
+
+        report.append(
+            "> LLM judge disabled. Faithfulness, "
+            "answer relevancy and answer correctness "
+            "were not assigned artificial scores."
+        )
+
+    # ========================================================
+    # SYSTEM
+    # ========================================================
+
+    report.append("")
+
+    report.append(
+        "## System Metrics"
+    )
+
+    report.append("")
+
+    report.append(
+        "| Metric | Value |"
+    )
+
+    report.append(
+        "|---|---:|"
+    )
+
+    for column in [
+        "answer_generation_rate",
+        "retrieval_success_rate",
+        "duplicate_rate",
+        "latency_seconds",
+        "error_rate",
+        "rate_limit_errors",
+    ]:
+
+        value = metrics.get(
+            column
+        )
+
+        if value is not None:
+
+            if column in {
+                "answer_generation_rate",
+                "retrieval_success_rate",
+                "duplicate_rate",
+                "error_rate",
+            }:
+
+                formatted = (
+                    f"{value:.2%}"
                 )
 
-        # ----------------------------------------------------
-        # Generation
-        # ----------------------------------------------------
+            elif column == "latency_seconds":
 
-        f.write(
-            "\n## Generation Metrics\n\n"
+                formatted = (
+                    f"{value:.3f}s"
+                )
+
+            else:
+
+                formatted = str(
+                    value
+                )
+
+            report.append(
+                f"| {column} | "
+                f"{formatted} |"
+            )
+
+    # ========================================================
+    # FAILED QUERIES
+    # ========================================================
+
+    report.append("")
+
+    report.append(
+        "## Failed Queries"
+    )
+
+    report.append("")
+
+    if failed.empty:
+
+        report.append(
+            "No failed queries."
         )
 
-        f.write(
-            "| Metric | Score |\n"
-        )
+    else:
 
-        f.write(
-            "|---|---:|\n"
-        )
+        for _, row in failed.iterrows():
 
-        for metric in [
+            report.append(
+                f"### {row['id']}"
+            )
 
+            report.append("")
+
+            report.append(
+                f"**Question:** "
+                f"{row['question']}"
+            )
+
+            report.append("")
+
+            report.append(
+                f"**Error type:** "
+                f"{row['error_type']}"
+            )
+
+            report.append("")
+
+            report.append(
+                f"**Error:** "
+                f"`{row['error']}`"
+            )
+
+            report.append("")
+
+    # ========================================================
+    # CATEGORY
+    # ========================================================
+
+    report.append(
+        "## Category Results"
+    )
+
+    report.append("")
+
+    if not category_df.empty:
+
+        display_columns = [
+            "category",
+            "questions",
+            "successful",
+            "failed",
+            "hit_rate@5",
+            "precision@5",
+            "recall@5",
+            "ndcg@5",
+            "mrr",
+            "map",
             "faithfulness",
             "answer_relevancy",
             "answer_correctness",
-            "hallucination_rate",
-
-        ]:
-
-            value = metrics.get(
-                metric
-            )
-
-            if value is not None:
-
-                f.write(
-                    f"| {metric} | "
-                    f"{value:.4f} |\n"
-                )
-
-        if not ENABLE_LLM_JUDGE:
-
-            f.write(
-                "\n> LLM judge was disabled. "
-                "Faithfulness, Answer Relevancy and "
-                "Answer Correctness were therefore not "
-                "quantitatively judged.\n"
-            )
-
-        # ----------------------------------------------------
-        # Custom
-        # ----------------------------------------------------
-
-        f.write(
-            "\n## PriceOye-Specific Metrics\n\n"
-        )
-
-        f.write(
-            "| Metric | Score |\n"
-        )
-
-        f.write(
-            "|---|---:|\n"
-        )
-
-        for metric in [
-
-            "product_mention_accuracy",
-            "lexical_answer_relevancy",
-            "duplicate_rate",
-            "empty_retrieval",
-            "empty_answer",
-
-        ]:
-
-            value = metrics.get(
-                metric
-            )
-
-            if value is not None:
-
-                f.write(
-                    f"| {metric} | "
-                    f"{value:.4f} |\n"
-                )
-
-        # ----------------------------------------------------
-        # System
-        # ----------------------------------------------------
-
-        f.write(
-            "\n## System Metrics\n\n"
-        )
-
-        f.write(
-            "| Metric | Value |\n"
-        )
-
-        f.write(
-            "|---|---:|\n"
-        )
-
-        for metric in [
-
             "latency_seconds",
-            "error_rate",
+        ]
 
-        ]:
+        available = [
+            x
+            for x in display_columns
+            if x in category_df.columns
+        ]
 
-            value = metrics.get(
-                metric
+        temp = category_df[
+            available
+        ].copy()
+
+        report.append(
+            temp.to_markdown(
+                index=False
             )
-
-            if value is not None:
-
-                f.write(
-                    f"| {metric} | "
-                    f"{value:.4f} |\n"
-                )
-
-        # ----------------------------------------------------
-        # Categories
-        # ----------------------------------------------------
-
-        f.write(
-            "\n## Category Results\n\n"
         )
 
-        if not category_df.empty:
+    # ========================================================
+    # INTERPRETATION
+    # ========================================================
 
-            f.write(
-                category_df.to_markdown(
-                    index=False
-                )
-            )
+    report.append("")
 
-        # ----------------------------------------------------
-        # Errors
-        # ----------------------------------------------------
+    report.append(
+        "## Important Interpretation Notes"
+    )
 
-        f.write(
-            "\n\n## Failed Queries\n\n"
-        )
+    report.append("")
 
-        if failed.empty:
+    report.append(
+        "1. API rate-limit failures are reported "
+        "separately and are not treated as retrieval "
+        "quality failures."
+    )
 
-            f.write(
-                "No failed queries.\n"
-            )
+    report.append("")
 
-        else:
+    report.append(
+        "2. Retrieval precision/recall/MRR/MAP/nDCG "
+        "require ground-truth product names. "
+        "Questions without expected products are "
+        "excluded from those metrics."
+    )
 
-            for _, row in failed.iterrows():
+    report.append("")
 
-                f.write(
-                    f"### {row['id']}\n\n"
-                )
+    report.append(
+        "3. nDCG is mathematically bounded between "
+        "0 and 1 in this evaluator."
+    )
 
-                f.write(
-                    f"**Question:** "
-                    f"{row['question']}\n\n"
-                )
+    report.append("")
 
-                f.write(
-                    f"**Error:** "
-                    f"{row.get('error', '')}\n\n"
-                )
+    report.append(
+        "4. Faithfulness and correctness require "
+        "an independent evaluation judge and are "
+        "not fabricated when the judge is disabled."
+    )
 
-        # ----------------------------------------------------
-        # Interpretation
-        # ----------------------------------------------------
+    report.append("")
 
-        f.write(
-            "\n## Interpretation\n\n"
-        )
+    report.append(
+        "5. Ten questions are useful for a smoke test "
+        "but are not sufficient for a statistically "
+        "strong benchmark."
+    )
 
-        f.write(
-            "Higher is better for Hit Rate, Precision, "
-            "Recall, nDCG, MRR, MAP, Faithfulness, "
-            "Answer Relevancy and Answer Correctness.\n\n"
-        )
+    with open(
+        OUTPUT_DIR / "REPORT.md",
+        "w",
+        encoding="utf-8"
+    ) as file:
 
-        f.write(
-            "Lower is better for Hallucination Rate, "
-            "Duplicate Rate, Error Rate and Latency.\n"
+        file.write(
+            "\n".join(report)
         )
 
     # ========================================================
@@ -1835,24 +2248,17 @@ def main():
 
     print()
     print("=" * 72)
-    print("EVALUATION COMPLETE")
+    print("EVALUATION FINISHED")
     print("=" * 72)
 
-    print()
-
     print(
-        f"Questions: "
-        f"{len(df)}"
-    )
-
-    print(
-        f"Successful: "
-        f"{metrics['successful_questions']}"
+        f"\nSuccessful: "
+        f"{len(successful)}/10"
     )
 
     print(
         f"Failed: "
-        f"{metrics['failed_questions']}"
+        f"{len(failed)}/10"
     )
 
     print(
@@ -1862,9 +2268,9 @@ def main():
 
     print()
 
-    print("RETRIEVAL")
+    print("RETRIEVAL:")
 
-    for metric in [
+    for column in [
         "hit_rate@5",
         "precision@5",
         "recall@5",
@@ -1874,21 +2280,27 @@ def main():
     ]:
 
         value = metrics.get(
-            metric
+            column
         )
 
-        if value is not None:
+        if value is None:
 
             print(
-                f"  {metric:<20}"
+                f"  {column:<20} N/A"
+            )
+
+        else:
+
+            print(
+                f"  {column:<20} "
                 f"{value:.4f}"
             )
 
     print()
 
-    print("GENERATION")
+    print("GENERATION:")
 
-    for metric in [
+    for column in [
         "faithfulness",
         "answer_relevancy",
         "answer_correctness",
@@ -1896,19 +2308,35 @@ def main():
     ]:
 
         value = metrics.get(
-            metric
+            column
         )
 
-        if value is not None:
+        if value is None:
 
             print(
-                f"  {metric:<20}"
+                f"  {column:<20} N/A"
+            )
+
+        else:
+
+            print(
+                f"  {column:<20} "
                 f"{value:.4f}"
             )
 
     print()
 
-    print("SYSTEM")
+    print("SYSTEM:")
+
+    print(
+        f"  {'Answer generation':<20}"
+        f"{metrics.get('answer_generation_rate', 0):.2%}"
+    )
+
+    print(
+        f"  {'Retrieval success':<20}"
+        f"{metrics.get('retrieval_success_rate', 0):.2%}"
+    )
 
     print(
         f"  {'Average latency':<20}"
@@ -1916,25 +2344,28 @@ def main():
     )
 
     print(
-        f"  {'Empty retrieval':<20}"
-        f"{metrics.get('empty_retrieval', 0):.2%}"
-    )
-
-    print(
-        f"  {'Duplicate rate':<20}"
-        f"{metrics.get('duplicate_rate', 0):.2%}"
+        f"  {'Rate-limit errors':<20}"
+        f"{metrics.get('rate_limit_errors', 0)}"
     )
 
     print()
 
     print(
-        f"Detailed results:\n"
-        f"  {OUTPUT_DIR}"
+        "Results saved to:"
     )
 
     print(
-        f"\nReport:\n"
-        f"  {report_file}"
+        OUTPUT_DIR
+    )
+
+    print()
+
+    print(
+        "Open:"
+    )
+
+    print(
+        OUTPUT_DIR / "REPORT.md"
     )
 
     print()
@@ -1946,3 +2377,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+````
