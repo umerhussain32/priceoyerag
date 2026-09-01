@@ -402,15 +402,15 @@ Few-Shot Examples:
 - Example 4:
   Query: "show me keypad phones"
   JSON: {
-    "is_casual_chat": false,
-    "has_hardcoded_specs": true,
-    "pinecone_filter": {
-      "$and": [
-        {"ram_gb": {"$lt": 1}}
-      ]
-    },
-    "search_query": "keypad phone"
-  }
+  "is_casual_chat": false,
+  "has_hardcoded_specs": true,
+  "pinecone_filter": {
+    "$and": [
+      {"ram_gb": {"$lt": 1}}
+    ]
+  },
+  "search_query": "keypad phone"
+}
 
 Return ONLY a valid JSON object matching this structure:
 {{
