@@ -315,6 +315,7 @@ def analyze_and_route_query(user_query: str, chat_history: list = None) -> dict:
     - Identifies casual conversation (greetings, intros) to bypass vector search.
     - Automatically converts dynamic specs (price, RAM, PTA) into Pinecone metadata filters.
     - Rewrites and expands queries using chat history context.
+    - Applies product-type RAM and price rules for smartphones and keypad phones.
     """
     history_str = ""
     if chat_history:
@@ -346,23 +347,64 @@ User Query: "{user_query}"
 
 Instructions:
 1. Determine if `is_casual_chat` is true (greetings, intros like "i am umer", questions about identity like "who am i", thank yous, general conversation NOT asking for products).
+
 2. If NOT casual chat, extract ALL explicit filter constraints from query and context into `pinecone_filter`.
+
 3. Operators to use: `$lte`, `$gte`, `$gt`, `$lt`, `$eq`.
-4. Range Queries: Combine `$gte` and `$lte` inside the field condition.
+
+4. Range Queries: 
+   - Combine `$gte` and `$lte` inside the field condition.
+   - When multiple operators apply to the SAME field, combine them into ONE field condition.
+   - Example:
+     "phones above 10k and under 50k"
+     should become:
+     {{"price_numeric": {{"$gt": 10000, "$lte": 50000}}}}
+
 5. Multiple Conditions: Enclose ALL conditions inside a single top-level `"$and"` array.
+
 6. Clean `search_query`: Strip specific numbers already captured in filters.
+
 7. Product Type RAM Rules:
    - If the user asks for "smartphones", "smart phones", "smartphone", "Android phones", "iPhones", or clearly means a modern smartphone, automatically add:
-     {"ram_gb": {"$gt": 1}}
+     {{"ram_gb": {{"$gt": 1}}}}
      This means RAM must be greater than 1 GB.
+
    - If the user asks for "keypad phones", "keypad mobile", "button phones", "feature phones", or clearly means a traditional keypad/button phone, automatically add:
-     {"ram_gb": {"$lt": 1}}
+     {{"ram_gb": {{"$lt": 1}}}}
      This means RAM must be less than 1 GB.
+
    - These RAM rules are implicit product-type constraints even when the user does not explicitly mention RAM.
+
    - Never apply both smartphone and keypad-phone RAM rules to the same query.
+
    - If the user explicitly specifies a RAM requirement, the user's explicit RAM requirement takes priority over the implicit product-type rule.
 
+8. Product Type Price Rules:
+   - If the user asks for "smartphones", "smart phones", "smartphone", "Android phones", "iPhones", or clearly means a modern smartphone, automatically add:
+     {{"price_numeric": {{"$gt": 10000}}}}
+     This means the smartphone price must be above 10,000 PKR.
+
+   - This price rule is an implicit product-type constraint even when the user does not explicitly mention a price.
+
+   - If the user explicitly specifies a compatible price range or price limit, combine it with the default smartphone price rule.
+
+   - Example:
+     "smartphones under 50k"
+     should become:
+     {{"price_numeric": {{"$gt": 10000, "$lte": 50000}}}}
+
+   - If the user explicitly asks for smartphones below 10,000 PKR, the explicit user price requirement takes priority over the default smartphone price > 10,000 rule.
+
+   - Keypad phones do NOT automatically receive the price > 10,000 rule. Only the RAM < 1 GB rule applies automatically to keypad phones.
+
+9. Explicit specifications always take priority over implicit product-type defaults for the SAME field.
+
+10. Do not apply smartphone defaults to keypad phones, and do not apply keypad-phone defaults to smartphones.
+
+11. Do not invent product specifications that are not present in the query, chat history, or the product-type rules above.
+
 Few-Shot Examples:
+
 - Example 1:
   Query: "Phones with at least 6.5 inch screen and more than 10% discount under 50k"
   JSON: {{
@@ -386,31 +428,61 @@ Few-Shot Examples:
     "pinecone_filter": null,
     "search_query": ""
   }}
-  - Example 3:
+
+- Example 3:
   Query: "show me smartphones"
-  JSON: {
+  JSON: {{
     "is_casual_chat": false,
     "has_hardcoded_specs": true,
-    "pinecone_filter": {
+    "pinecone_filter": {{
       "$and": [
-        {"ram_gb": {"$gt": 1}}
+        {{"ram_gb": {{"$gt": 1}}}},
+        {{"price_numeric": {{"$gt": 10000}}}}
       ]
-    },
+    }},
     "search_query": "smartphone"
-  }
+  }}
 
 - Example 4:
   Query: "show me keypad phones"
-  JSON: {
-  "is_casual_chat": false,
-  "has_hardcoded_specs": true,
-  "pinecone_filter": {
-    "$and": [
-      {"ram_gb": {"$lt": 1}}
-    ]
-  },
-  "search_query": "keypad phone"
-}
+  JSON: {{
+    "is_casual_chat": false,
+    "has_hardcoded_specs": true,
+    "pinecone_filter": {{
+      "$and": [
+        {{"ram_gb": {{"$lt": 1}}}}
+      ]
+    }},
+    "search_query": "keypad phone"
+  }}
+
+- Example 5:
+  Query: "smartphones under 50k"
+  JSON: {{
+    "is_casual_chat": false,
+    "has_hardcoded_specs": true,
+    "pinecone_filter": {{
+      "$and": [
+        {{"ram_gb": {{"$gt": 1}}}},
+        {{"price_numeric": {{"$gt": 10000, "$lte": 50000}}}}
+      ]
+    }},
+    "search_query": "smartphone"
+  }}
+
+- Example 6:
+  Query: "smartphones with 8GB RAM"
+  JSON: {{
+    "is_casual_chat": false,
+    "has_hardcoded_specs": true,
+    "pinecone_filter": {{
+      "$and": [
+        {{"ram_gb": {{"$eq": 8}}}},
+        {{"price_numeric": {{"$gt": 10000}}}}
+      ]
+    }},
+    "search_query": "smartphone"
+  }}
 
 Return ONLY a valid JSON object matching this structure:
 {{
@@ -424,11 +496,16 @@ JSON Output ONLY:"""
 
     response = llm.invoke(router_prompt)
     raw_text = response.content
+
     if isinstance(raw_text, list):
-        raw_text = "".join(b.get("text", "") for b in raw_text if isinstance(b, dict) and "text" in b)
-    
+        raw_text = "".join(
+            b.get("text", "")
+            for b in raw_text
+            if isinstance(b, dict) and "text" in b
+        )
+
     clean_json_str = raw_text.strip().replace("```json", "").replace("```", "").strip()
-    
+
     try:
         return json.loads(clean_json_str)
     except Exception:
