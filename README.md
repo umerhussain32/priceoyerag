@@ -73,3 +73,8 @@ This project demonstrates a production-ready, retrieval-augmented generation (RA
 - 📜 **Policy Precision:** Distinguishes nuances between replacement timelines, payment gateways, and shipping carrier constraints.
 - 🎥 **Claim Guidance:** Step-by-step text workflows for submitting mandatory unboxing videos for transit damage disputes.
 - 🛡️ **Grounded Responses:** Enforces strict context grounding to suppress hallucinatory claims.
+  
+---
+## Note: 
+- RAG_Evaluation (**rag_evaluation.py**) has not been completed yet.
+---
